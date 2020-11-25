@@ -70,6 +70,8 @@ struct GrowthEvent;
 #[derive(Default)]
 struct LastTailPosition(Option<Position>);
 
+struct GameOverEvent;
+
 struct Materials {
     head_material: Handle<ColorMaterial>,
     segment_material: Handle<ColorMaterial>,
@@ -101,7 +103,10 @@ fn main() {
         .add_system(snake_timer.system())
         .add_system(snake_eating.system())
         .add_system(snake_growth.system())
+        .add_system(game_over.system())
         .add_event::<GrowthEvent>()
+        .add_event::<GameOverEvent>()
+        .add_event::<GameOverEvent>()
         .add_plugins(DefaultPlugins)
         .run();
 }
@@ -145,6 +150,7 @@ fn spawn_snake(
 fn snake_movement(
     keyboard_input: Res<Input<KeyCode>>,
     snake_timer: ResMut<SnakeMoveTimer>,
+    mut game_over_events: ResMut<Events<GameOverEvent>>,
     segments: ResMut<SnakeSegments>,
     mut last_tail_position: ResMut<LastTailPosition>,
     mut heads: Query<(Entity, &mut SnakeHead)>,
@@ -188,6 +194,16 @@ fn snake_movement(
                 head_pos.y -= 1;
             }
         };
+        if head_pos.x < 0
+            || head_pos.y < 0
+            || head_pos.x as u32 >= ARENA_WIDTH
+            || head_pos.y as u32 >= ARENA_HEIGHT
+        {
+            game_over_events.send(GameOverEvent);
+        }
+        if segment_positions.contains(&head_pos) {
+            game_over_events.send(GameOverEvent);
+        }
         segment_positions
             .iter()
             .zip(segments.0.iter().skip(1))
@@ -300,5 +316,22 @@ fn snake_growth(
             &materials.segment_material,
             last_tail_position.0.unwrap(),
         ));
+    }
+}
+
+fn game_over(
+    mut commands: Commands,
+    mut reader: Local<EventReader<GameOverEvent>>,
+    game_over_events: Res<Events<GameOverEvent>>,
+    materials: Res<Materials>,
+    segments_res: ResMut<SnakeSegments>,
+    food: Query<With<Food, Entity>>,
+    segments: Query<With<SnakeSegment, Entity>>,
+) {
+    if reader.iter(&game_over_events).next().is_some() {
+        for ent in food.iter().chain(segments.iter()) {
+            commands.despawn(ent);
+        }
+        spawn_snake(commands, materials, segments_res);
     }
 }
